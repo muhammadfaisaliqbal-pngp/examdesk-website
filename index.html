@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Muhammad Faisal Iqbal – Online Exam</title>
+<style>
+  :root{
+    --bg:#f2f5f8; --card:#ffffff; --ink:#14213d; --muted:#5b6b82; --line:#d9e1ea;
+    --accent:#0f766e; --accent-ink:#ffffff; --warn:#b45309; --bad:#b91c1c; --sel:#e3f4f1;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#0f1722; --card:#17212f; --ink:#e8eef6; --muted:#97a6bb; --line:#27364a;
+           --accent:#2dd4bf; --accent-ink:#06201d; --warn:#fbbf24; --bad:#f87171; --sel:#123a38; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:680px;margin:0 auto;padding:16px}
+  h1{font-size:1.5rem;margin:8px 0 4px}
+  p.sub{color:var(--muted);margin:0 0 16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+  label{display:block;font-weight:600;margin:12px 0 4px}
+  input[type=text]{width:100%;padding:12px;border:1px solid var(--line);border-radius:8px;
+       background:var(--bg);color:var(--ink);font-size:1rem}
+  input[type=text]:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  button{font:inherit;cursor:pointer}
+  .btn{width:100%;margin-top:16px;padding:14px;border:0;border-radius:8px;
+       background:var(--accent);color:var(--accent-ink);font-weight:700}
+  .btn[disabled]{opacity:.5;cursor:not-allowed}
+  .err{color:var(--bad);margin-top:10px;min-height:1.2em}
+  .hide{display:none}
+  .bar{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);
+       padding:10px 16px;display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .bar b{font-size:1.05rem}
+  .timer{font-variant-numeric:tabular-nums;font-weight:700;font-size:1.2rem}
+  .timer.low{color:var(--bad)}
+  .q h3{font-size:1rem;margin:0 0 10px;line-height:1.4}
+  .opt{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;padding:11px 12px;margin-top:8px;
+       border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+  .opt.on{border-color:var(--accent);background:var(--sel)}
+  .dot{flex:none;width:18px;height:18px;margin-top:2px;border:2px solid var(--muted);border-radius:50%}
+  .opt.on .dot{border-color:var(--accent);background:radial-gradient(var(--accent) 45%,transparent 50%)}
+  .meta{color:var(--muted);font-size:.9rem}
+  .score{font-size:2.4rem;font-weight:800;margin:4px 0}
+  table{width:100%;border-collapse:collapse}
+  td{padding:8px 0;border-bottom:1px solid var(--line)}
+  td:last-child{text-align:right;font-weight:700}
+  .note{background:var(--sel);border-radius:8px;padding:10px 12px;font-size:.92rem;margin-top:14px}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="loginView" class="wrap">
+  <h1>Online Exam</h1>
+  <p class="sub">Conducted by Muhammad Faisal Iqbal. Machine Learning and Cryptography papers, 10 minutes each.</p>
+  <div class="card">
+    <label for="name">Full name</label>
+    <input id="name" type="text" autocomplete="name">
+    <label for="roll">Roll number</label>
+    <input id="roll" type="text" autocomplete="off">
+    <div class="note">You can attempt each paper once. When you submit the first paper, the next one opens automatically. Do not switch tabs during the exam.</div>
+    <button id="startBtn" class="btn">Start exam</button>
+    <div id="loginErr" class="err"></div>
+  </div>
+</div>
+
+<!-- EXAM -->
+<div id="examView" class="hide">
+  <div class="bar">
+    <div><b id="paperTitle"></b><div class="meta" id="progress"></div></div>
+    <div class="timer" id="timer">10:00</div>
+  </div>
+  <div class="wrap">
+    <div id="questions"></div>
+    <button id="submitBtn" class="btn">Submit paper</button>
+    <div id="examErr" class="err"></div>
+  </div>
+</div>
+
+<!-- DONE -->
+<div id="doneView" class="hide wrap">
+  <h1>Exam finished</h1>
+  <p class="sub" id="doneWho"></p>
+  <div class="card">
+    <table id="scoreTable"></table>
+    <div class="score" id="totalScore"></div>
+    <div class="meta">Your results have been saved. You can close this page.</div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getFirestore, doc, getDoc, setDoc, serverTimestamp }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+/* ============ 1. PASTE YOUR FIREBASE CONFIG HERE ============ */
+const firebaseConfig = {
+  apiKey: "PASTE_API_KEY",
+  authDomain: "PASTE_AUTH_DOMAIN",
+  projectId: "PASTE_PROJECT_ID",
+  storageBucket: "PASTE_STORAGE_BUCKET",
+  messagingSenderId: "PASTE_SENDER_ID",
+  appId: "PASTE_APP_ID"
+};
+/* ============================================================ */
+
+const db = getFirestore(initializeApp(firebaseConfig));
+
+/* ============ 2. PAPERS (edit or add more here) ============ */
+// a = index of the correct option (0 = first)
+const PAPERS = [
+  { id:"ml", title:"Machine Learning", minutes:10, questions:[
+    { q:"Which type of learning uses labeled data?", o:["Unsupervised learning","Supervised learning","Reinforcement learning","Clustering"], a:1 },
+    { q:"Overfitting means the model…", o:["Performs badly on training data","Performs well on training data but poorly on unseen data","Has too few parameters","Never converges"], a:1 },
+    { q:"Which algorithm is used for binary classification?", o:["Linear regression","K-means","Logistic regression","PCA"], a:2 },
+    { q:"What is the purpose of a test set?", o:["To train the model","To tune the learning rate","To evaluate final performance on unseen data","To clean the data"], a:2 },
+    { q:"Gradient descent updates parameters to…", o:["Maximize the loss","Minimize the loss function","Increase the dataset size","Remove outliers"], a:1 },
+    { q:"K-means is an example of…", o:["Supervised classification","Unsupervised clustering","Regression","Reinforcement learning"], a:1 },
+    { q:"The ReLU activation function is defined as…", o:["1 / (1 + e^-x)","tanh(x)","max(0, x)","x²"], a:2 },
+    { q:"L2 regularization is mainly used to…", o:["Reduce overfitting","Increase model size","Speed up data loading","Create labels"], a:0 },
+    { q:"Which one is a classification metric?", o:["RMSE","MAE","R²","F1-score"], a:3 },
+    { q:"A model that is too simple and underfits has…", o:["High variance","High bias","Zero error","Low bias and low variance"], a:1 }
+  ]},
+  { id:"crypto", title:"Cryptography", minutes:10, questions:[
+    { q:"Which of these is a symmetric-key algorithm?", o:["RSA","ECC","AES","Diffie-Hellman"], a:2 },
+    { q:"The security of RSA is based on the difficulty of…", o:["Computing discrete logs only","Factoring large integers","Sorting large numbers","Finding prime numbers"], a:1 },
+    { q:"A Caesar cipher with shift 3 encrypts HELLO as…", o:["KHOOR","IFMMP","JGNNQ","LIPPS"], a:0 },
+    { q:"What is the output size of SHA-256?", o:["128 bits","160 bits","256 bits","512 bits"], a:2 },
+    { q:"Diffie-Hellman is used for…", o:["Encrypting files","Key exchange over an insecure channel","Hashing passwords","Digital signatures only"], a:1 },
+    { q:"A cryptographic hash function should be…", o:["Reversible","One-way (preimage resistant)","Key dependent only","Variable in output length"], a:1 },
+    { q:"Digital signatures provide…", o:["Only confidentiality","Authenticity and non-repudiation","Only compression","Only availability"], a:1 },
+    { q:"Which of these is a public-key cryptosystem?", o:["DES","AES","RC4","RSA"], a:3 },
+    { q:"The block size of AES is…", o:["64 bits","128 bits","192 bits","256 bits"], a:1 },
+    { q:"What is the modular inverse of 3 modulo 7?", o:["2","4","5","6"], a:2 }
+  ]}
+];
+/* ============================================================ */
+
+const $ = id => document.getElementById(id);
+const show = v => ["loginView","examView","doneView"].forEach(x => $(x).classList.toggle("hide", x !== v));
+
+let student = null, pIndex = 0, answers = [], endAt = 0, tick = null, tabSwitches = 0, submitting = false;
+const results = {};          // paperId -> {score,total}
+
+const cleanRoll = r => r.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-");
+const docId = p => `${student.roll}_${p.id}`;
+const fmt = s => `${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && !$("examView").classList.contains("hide")) tabSwitches++;
+});
+
+/* ---------- login ---------- */
+$("startBtn").onclick = async () => {
+  const name = $("name").value.trim(), roll = cleanRoll($("roll").value);
+  $("loginErr").textContent = "";
+  if (name.length < 3 || !roll) { $("loginErr").textContent = "Enter your full name and roll number."; return; }
+  $("startBtn").disabled = true; $("startBtn").textContent = "Checking…";
+  try {
+    student = { name, roll };
+    for (const p of PAPERS) {
+      const snap = await getDoc(doc(db, "results", docId(p)));
+      if (snap.exists()) results[p.id] = { score: snap.data().score, total: snap.data().total };
+    }
+    pIndex = PAPERS.findIndex(p => !results[p.id]);
+    pIndex === -1 ? finish() : startPaper();
+  } catch (e) {
+    console.error(e);
+    $("loginErr").textContent = "Could not connect. Check your internet and try again.";
+  } finally {
+    $("startBtn").disabled = false; $("startBtn").textContent = "Start exam";
+  }
+};
+
+/* ---------- paper ---------- */
+function startPaper() {
+  const p = PAPERS[pIndex];
+  answers = Array(p.questions.length).fill(null);
+  tabSwitches = 0; submitting = false;
+
+  // keep the same deadline if the page is refreshed
+  const key = `examdesk_end_${docId(p)}`;
+  let saved = Number(localStorage.getItem(key));
+  if (!saved || saved < Date.now() - p.minutes * 60000) {
+    saved = Date.now() + p.minutes * 60000;
+    localStorage.setItem(key, saved);
+  }
+  endAt = saved;
+  try { const a = JSON.parse(localStorage.getItem(key + "_ans")); if (Array.isArray(a) && a.length === answers.length) answers = a; } catch {}
+
+  $("paperTitle").textContent = `Paper ${pIndex + 1} of ${PAPERS.length}: ${p.title}`;
+  $("examErr").textContent = "";
+  renderQuestions();
+  show("examView"); window.scrollTo(0, 0);
+
+  clearInterval(tick);
+  tick = setInterval(updateTimer, 500); updateTimer();
+}
+
+function renderQuestions() {
+  const p = PAPERS[pIndex], box = $("questions");
+  box.innerHTML = "";
+  p.questions.forEach((q, i) => {
+    const c = document.createElement("div"); c.className = "card q";
+    const h = document.createElement("h3"); h.textContent = `${i + 1}. ${q.q}`; c.appendChild(h);
+    q.o.forEach((text, j) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "opt" + (answers[i] === j ? " on" : "");
+      b.innerHTML = '<span class="dot"></span><span></span>';
+      b.lastChild.textContent = text;
+      b.onclick = () => {
+        answers[i] = j;
+        localStorage.setItem(`examdesk_end_${docId(p)}_ans`, JSON.stringify(answers));
+        [...c.querySelectorAll(".opt")].forEach((el, k) => el.classList.toggle("on", k === j));
+        updateProgress();
+      };
+      c.appendChild(b);
+    });
+    box.appendChild(c);
+  });
+  updateProgress();
+}
+
+function updateProgress() {
+  $("progress").textContent = `${answers.filter(a => a !== null).length} of ${answers.length} answered`;
+}
+
+function updateTimer() {
+  const left = Math.max(0, Math.round((endAt - Date.now()) / 1000));
+  $("timer").textContent = fmt(left);
+  $("timer").classList.toggle("low", left <= 60);
+  if (left === 0) submitPaper(true);
+}
+
+$("submitBtn").onclick = () => {
+  const open = answers.filter(a => a === null).length;
+  if (open && !confirm(`${open} question(s) are unanswered. Submit anyway?`)) return;
+  submitPaper(false);
+};
+
+async function submitPaper(auto) {
+  if (submitting) return;
+  submitting = true; clearInterval(tick);
+  const p = PAPERS[pIndex];
+  const score = answers.reduce((s, a, i) => s + (a === p.questions[i].a ? 1 : 0), 0);
+  const total = p.questions.length;
+  $("submitBtn").disabled = true; $("submitBtn").textContent = "Saving…";
+  $("examErr").textContent = "";
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await setDoc(doc(db, "results", docId(p)), {
+        name: student.name, roll: student.roll, paper: p.id, paperTitle: p.title,
+        score, total, answers, tabSwitches, autoSubmitted: auto,
+        submittedAt: serverTimestamp()
+      });
+      break;
+    } catch (e) {
+      // "permission-denied" here means a result already exists for this roll + paper
+      if (e.code === "permission-denied") break;
+      if (attempt === 3) {
+        console.error(e);
+        $("examErr").textContent = "Could not save. Check your internet, then press Submit again.";
+        $("submitBtn").disabled = false; $("submitBtn").textContent = "Submit paper";
+        submitting = false; tick = setInterval(updateTimer, 500);
+        return;
+      }
+      await new Promise(r => setTimeout(r, 800 * attempt));
+    }
+  }
+
+  results[p.id] = { score, total };
+  localStorage.removeItem(`examdesk_end_${docId(p)}`);
+  localStorage.removeItem(`examdesk_end_${docId(p)}_ans`);
+  $("submitBtn").disabled = false; $("submitBtn").textContent = "Submit paper";
+
+  pIndex++;
+  pIndex < PAPERS.length ? startPaper() : finish();
+}
+
+/* ---------- finish ---------- */
+function finish() {
+  clearInterval(tick);
+  $("doneWho").textContent = `${student.name} (${student.roll})`;
+  const t = $("scoreTable"); t.innerHTML = "";
+  let s = 0, n = 0;
+  PAPERS.forEach(p => {
+    const r = results[p.id]; if (!r) return;
+    s += r.score; n += r.total;
+    const tr = t.insertRow();
+    tr.insertCell().textContent = p.title;
+    tr.insertCell().textContent = `${r.score} / ${r.total}`;
+  });
+  $("totalScore").textContent = `Total: ${s} / ${n}`;
+  show("doneView"); window.scrollTo(0, 0);
+}
+</script>
+</body>
+  </html>
